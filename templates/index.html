@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Jitus AI</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="h-screen flex bg-gray-100">
+
+<!-- Sidebar -->
+<div class="w-64 bg-gray-900 text-white flex flex-col">
+    <div class="p-4 font-bold text-lg border-b border-gray-700">
+        Jitus AI
+    </div>
+
+    <button onclick="newChat()"
+        class="m-3 p-2 border border-gray-600 rounded hover:bg-gray-800">
+        + New Chat
+    </button>
+
+    <div id="chatList" class="flex-1 overflow-y-auto px-2"></div>
+</div>
+
+<!-- Main -->
+<div class="flex-1 flex flex-col">
+    <div id="chatBox" class="flex-1 overflow-y-auto p-6 space-y-4"></div>
+
+    <div class="border-t p-4 flex gap-3 bg-white">
+        <textarea id="input"
+            rows="2"
+            placeholder="Message Jitus AI..."
+            class="flex-1 resize-none border rounded-lg p-3 focus:ring-2 focus:ring-blue-500">
+        </textarea>
+
+        <button onclick="sendMessage()"
+            class="bg-blue-600 text-white px-6 rounded-lg hover:bg-blue-700">
+            Send
+        </button>
+    </div>
+</div>
+
+<script>
+const chatBox = document.getElementById("chatBox");
+const chatList = document.getElementById("chatList");
+const input = document.getElementById("input");
+
+let chats = JSON.parse(localStorage.getItem("chat_list")) || [];
+let activeChat = localStorage.getItem("active_chat");
+
+// ENTER = send
+input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.ctrlKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+function newChat() {
+    const id = "chat_" + Date.now();
+    chats.unshift({ id, title: "New Chat" });
+    localStorage.setItem("chat_list", JSON.stringify(chats));
+    localStorage.setItem(id, JSON.stringify([]));
+    localStorage.setItem("active_chat", id);
+    activeChat = id;
+    loadChats();
+    loadMessages();
+}
+
+function loadChats() {
+    chatList.innerHTML = "";
+    chats.forEach(c => {
+        chatList.innerHTML += `
+            <div onclick="openChat('${c.id}')"
+                class="p-2 cursor-pointer rounded hover:bg-gray-800 ${
+                    c.id === activeChat ? "bg-gray-800" : ""
+                }">
+                ${c.title}
+            </div>`;
+    });
+}
+
+function openChat(id) {
+    activeChat = id;
+    localStorage.setItem("active_chat", id);
+    loadChats();
+    loadMessages();
+}
+
+function loadMessages() {
+    chatBox.innerHTML = "";
+    const msgs = JSON.parse(localStorage.getItem(activeChat)) || [];
+    msgs.forEach(m => renderMessage(m.role, m.content));
+}
+
+function renderMessage(role, content) {
+    const align = role === "user" ? "text-right" : "text-left";
+    const bg = role === "user"
+        ? "bg-blue-100 text-blue-900"
+        : "bg-gray-200 text-gray-900";
+
+    chatBox.innerHTML += `
+        <div class="${align}">
+            <div class="inline-block ${bg} px-4 py-2 rounded-lg max-w-[75%] whitespace-pre-wrap">
+                ${content}
+            </div>
+        </div>`;
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function sendMessage() {
+    if (!activeChat) newChat();
+
+    const text = input.value.trim();
+    if (!text) return;
+
+    const messages = JSON.parse(localStorage.getItem(activeChat)) || [];
+
+    // render instantly
+    renderMessage("user", text);
+    messages.push({ role: "user", content: text });
+    localStorage.setItem(activeChat, JSON.stringify(messages));
+    input.value = "";
+
+    fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            message: text,
+            history: messages.slice(0, -1) // ✅ FIX
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        renderMessage("assistant", data.reply);
+        messages.push({ role: "assistant", content: data.reply });
+        localStorage.setItem(activeChat, JSON.stringify(messages));
+
+        if (messages.length === 2) {
+            chats = chats.map(c =>
+                c.id === activeChat
+                    ? { ...c, title: text.slice(0, 25) }
+                    : c
+            );
+            localStorage.setItem("chat_list", JSON.stringify(chats));
+            loadChats();
+        }
+    });
+}
+
+// INIT
+if (!activeChat && chats.length) {
+    activeChat = chats[0].id;
+    localStorage.setItem("active_chat", activeChat);
+}
+
+loadChats();
+if (activeChat) loadMessages();
+</script>
+
+</body>
+</html>
